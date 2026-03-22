@@ -5,6 +5,8 @@ Cinematic Three.js galaxy visualization for Hyperspell memories and image-relate
 ## What it adds
 
 - Tool: `hyperspell_knowledge_viz`
+- Plugin command: `/hyperspell_viz3d`
+- Plugin CLI command: `openclaw hyperspell-viz3d`
 - Route: `/plugins/hyperspell-knowledge-3d` (interactive 3D UI)
 - Route: `/plugins/hyperspell-knowledge-3d/data` (graph JSON)
 - Skill command: `hyperspell_knowledge_viz` (direct tool dispatch)
@@ -49,6 +51,10 @@ In `~/.openclaw/openclaw.json`:
 
 - Invoke the skill command or tool from chat:
   - `/hyperspell_knowledge_viz`
+- Or use plugin command that bypasses tool routing:
+  - `/hyperspell_viz3d`
+- Or generate URL from terminal:
+  - `openclaw hyperspell-viz3d --sender ziadbc@gmail.com`
 - It returns a URL like:
   - `/plugins/hyperspell-knowledge-3d?token=...`
 - Open that URL in OpenClaw web/control UI to view the 3D galaxy.
