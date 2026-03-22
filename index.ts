@@ -1,4 +1,7 @@
 import { Type } from "@sinclair/typebox";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildKnowledgeGraph } from "./src/aggregate.js";
 import { fetchHyperspellSnapshot } from "./src/hyperspell-client.js";
 import { renderGalaxyHtml } from "./src/html.js";
@@ -13,6 +16,7 @@ interface CacheRecord {
 
 const graphCache = new Map<string, CacheRecord>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const DISK_CACHE_DIR = join(tmpdir(), "openclaw-hyperspell-viz3d");
 
 function randomToken(): string {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
@@ -24,6 +28,56 @@ function cleanupCache(): void {
     if (now - rec.createdAtMs > CACHE_TTL_MS) {
       graphCache.delete(k);
     }
+  }
+}
+
+function tokenFilePath(token: string): string {
+  return join(DISK_CACHE_DIR, `${token}.json`);
+}
+
+async function writeDiskCache(token: string, graph: KnowledgeGraph, createdAtMs: number): Promise<void> {
+  await mkdir(DISK_CACHE_DIR, { recursive: true });
+  const payload = { graph, createdAtMs };
+  await writeFile(tokenFilePath(token), JSON.stringify(payload), "utf8");
+}
+
+async function readDiskCache(token: string): Promise<CacheRecord | null> {
+  try {
+    const raw = await readFile(tokenFilePath(token), "utf8");
+    const parsed = JSON.parse(raw) as { graph?: KnowledgeGraph; createdAtMs?: number };
+    if (!parsed || !parsed.graph || typeof parsed.createdAtMs !== "number") {
+      return null;
+    }
+    if (Date.now() - parsed.createdAtMs > CACHE_TTL_MS) {
+      await rm(tokenFilePath(token), { force: true });
+      return null;
+    }
+    return { graph: parsed.graph, createdAtMs: parsed.createdAtMs };
+  } catch {
+    return null;
+  }
+}
+
+async function cleanupDiskCache(): Promise<void> {
+  try {
+    const entries = await readdir(DISK_CACHE_DIR);
+    const now = Date.now();
+    for (const name of entries) {
+      if (!name.endsWith(".json")) {
+        continue;
+      }
+      const file = join(DISK_CACHE_DIR, name);
+      try {
+        const st = await stat(file);
+        if (now - st.mtimeMs > CACHE_TTL_MS) {
+          await rm(file, { force: true });
+        }
+      } catch {
+        // ignore cache cleanup errors
+      }
+    }
+  } catch {
+    // ignore cache cleanup errors
   }
 }
 
@@ -90,6 +144,7 @@ async function buildAndCacheGraph(
   overrides?: { lookbackDays?: number; maxDocs?: number },
 ): Promise<{ graph: KnowledgeGraph; token: string; url: string }> {
   cleanupCache();
+  await cleanupDiskCache();
   const base = getPluginSettings(api);
   const settings: PluginSettings = {
     ...base,
@@ -106,7 +161,9 @@ async function buildAndCacheGraph(
   const snapshot = await fetchHyperspellSnapshot(senderId, settings);
   const graph = buildKnowledgeGraph(senderId, snapshot.memories, snapshot.statusByProvider, settings);
   const token = randomToken();
-  graphCache.set(token, { graph, createdAtMs: Date.now() });
+  const createdAtMs = Date.now();
+  graphCache.set(token, { graph, createdAtMs });
+  await writeDiskCache(token, graph, createdAtMs);
   const url = `/plugins/hyperspell-knowledge-3d?token=${encodeURIComponent(token)}`;
   return { graph, token, url };
 }
@@ -195,7 +252,14 @@ export default function register(api: any) {
     handler: async (req: any, res: any) => {
       const reqUrl = new URL(req.url, "http://localhost");
       const token = reqUrl.searchParams.get("token") ?? "";
-      if (!token || !graphCache.has(token)) {
+      let rec = graphCache.get(token);
+      if (!rec && token) {
+        rec = await readDiskCache(token);
+        if (rec) {
+          graphCache.set(token, rec);
+        }
+      }
+      if (!token || !rec) {
         res.statusCode = 404;
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.end("<h1>Visualization not found</h1><p>Run /hyperspell_viz3d first.</p>");
@@ -217,7 +281,13 @@ export default function register(api: any) {
     handler: async (req: any, res: any) => {
       const reqUrl = new URL(req.url, "http://localhost");
       const token = reqUrl.searchParams.get("token") ?? "";
-      const rec = graphCache.get(token);
+      let rec = graphCache.get(token);
+      if (!rec && token) {
+        rec = await readDiskCache(token);
+        if (rec) {
+          graphCache.set(token, rec);
+        }
+      }
       if (!token || !rec) {
         sendJson(res, 404, { error: "not_found", message: "No graph data for token" });
         return true;
