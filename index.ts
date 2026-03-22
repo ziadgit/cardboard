@@ -247,7 +247,7 @@ export default function register(api: any) {
 
   api.registerHttpRoute({
     path: "/plugins/hyperspell-knowledge-3d",
-    auth: "gateway",
+    auth: "plugin",
     match: "exact",
     handler: async (req: any, res: any) => {
       const reqUrl = new URL(req.url, "http://localhost");
@@ -276,7 +276,7 @@ export default function register(api: any) {
 
   api.registerHttpRoute({
     path: "/plugins/hyperspell-knowledge-3d/data",
-    auth: "gateway",
+    auth: "plugin",
     match: "exact",
     handler: async (req: any, res: any) => {
       const reqUrl = new URL(req.url, "http://localhost");
