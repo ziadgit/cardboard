@@ -14,6 +14,14 @@ const IMAGE_WORDS = [
   "frame",
   "camera",
   "visual",
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+  "heic",
+  "svg",
+  "screenshot",
 ];
 
 function asObj(v: unknown): Record<string, unknown> {
@@ -55,6 +63,7 @@ function imageConfidence(mem: HyperspellMemory, boost: number): "high" | "medium
   const type = (mem.type ?? "").toLowerCase();
   const md = asObj(mem.metadata);
   const blob = JSON.stringify(md).toLowerCase();
+  const source = (mem.source ?? "").toLowerCase();
 
   let score = 0;
   if (url && IMAGE_EXT.some((ext) => url.toLowerCase().includes(ext))) {
@@ -65,6 +74,18 @@ function imageConfidence(mem: HyperspellMemory, boost: number): "high" | "medium
   }
   if (type.includes("image") || type.includes("photo") || type.includes("screenshot")) {
     score += 2;
+  }
+  if (source === "vault" || source === "google_drive" || source === "dropbox" || source === "box") {
+    score += 0.4;
+  }
+
+  const mdType = typeof md.mime_type === "string" ? md.mime_type.toLowerCase() : "";
+  if (mdType.startsWith("image/")) {
+    score += 3;
+  }
+  const mdFile = typeof md.file_name === "string" ? md.file_name.toLowerCase() : "";
+  if (IMAGE_EXT.some((ext) => mdFile.includes(ext))) {
+    score += 3;
   }
 
   const keywordHits = IMAGE_WORDS.filter((w) => title.includes(w) || blob.includes(w)).length;

@@ -75,8 +75,30 @@ export function renderGalaxyHtml(dataPath: string): string {
       letter-spacing: 0.02em;
       color: #f3f6ff;
     }
+    .mini {
+      margin-top: 10px;
+      border-top: 1px solid rgba(145, 178, 255, 0.2);
+      padding-top: 8px;
+    }
+    .list {
+      margin: 0;
+      padding-left: 16px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
     .row { margin: 5px 0; font-size: 12px; color: var(--muted); }
     .row b { color: var(--ink); }
+    .warn {
+      margin-top: 8px;
+      padding: 8px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 184, 77, 0.45);
+      background: rgba(255, 184, 77, 0.12);
+      color: #ffd9a1;
+      font-size: 12px;
+      line-height: 1.35;
+    }
     .filters {
       position: fixed;
       left: 16px;
@@ -113,9 +135,23 @@ export function renderGalaxyHtml(dataPath: string): string {
     .timeline {
       margin-top: 10px;
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: 1fr auto auto;
       gap: 8px;
       align-items: center;
+    }
+    .ghost {
+      background: rgba(22, 31, 58, 0.65);
+    }
+    .ghost.active {
+      border-color: rgba(255, 184, 77, 0.65);
+      box-shadow: inset 0 0 0 1px rgba(255, 184, 77, 0.45);
+      background: rgba(255, 184, 77, 0.16);
+      color: #ffe1ad;
+    }
+    .scroller {
+      max-height: 170px;
+      overflow: auto;
+      padding-right: 6px;
     }
     #tooltip {
       position: fixed;
@@ -144,6 +180,10 @@ export function renderGalaxyHtml(dataPath: string): string {
   <aside class="panel">
     <h2>Inspector</h2>
     <div id="inspector" class="row">Click a node to inspect memory details.</div>
+    <div class="mini">
+      <h2>Data Snapshot</h2>
+      <div id="summary" class="row">Loading memory summary...</div>
+    </div>
   </aside>
   <section class="filters">
     <div class="controls">
@@ -173,6 +213,7 @@ export function renderGalaxyHtml(dataPath: string): string {
     </div>
     <div class="timeline">
       <input id="timeline" type="range" min="0" max="100" value="100" />
+      <button id="demoBtn" class="ghost" type="button">Demo mode</button>
       <button id="resetBtn" type="button">Reset camera</button>
     </div>
   </section>
@@ -212,10 +253,12 @@ export function renderGalaxyHtml(dataPath: string): string {
     const tooltip = document.getElementById("tooltip");
     const hud = document.getElementById("hud");
     const inspector = document.getElementById("inspector");
+    const summary = document.getElementById("summary");
     const sourceFilter = document.getElementById("sourceFilter");
     const statusFilter = document.getElementById("statusFilter");
     const imageOnly = document.getElementById("imageOnly");
     const timeline = document.getElementById("timeline");
+    const demoBtn = document.getElementById("demoBtn");
     const resetBtn = document.getElementById("resetBtn");
 
     const scene = new THREE.Scene();
@@ -258,6 +301,170 @@ export function renderGalaxyHtml(dataPath: string): string {
     let edgeGroup = null;
     let hovered = null;
     let selected = null;
+    let baseGraph = null;
+    let demoMode = false;
+    let demoNodes = [];
+    let demoEdges = [];
+
+    function countBy(list, keyFn) {
+      const out = {};
+      for (const item of list) {
+        const k = keyFn(item);
+        out[k] = (out[k] || 0) + 1;
+      }
+      return out;
+    }
+
+    function timelineSpan(nodes) {
+      const times = nodes
+        .map((n) => Date.parse(n.indexedAt || n.createdAt || ""))
+        .filter((n) => Number.isFinite(n))
+        .sort((a, b) => a - b);
+      if (!times.length) {
+        return "n/a";
+      }
+      const first = new Date(times[0]).toISOString().slice(0, 10);
+      const last = new Date(times[times.length - 1]).toISOString().slice(0, 10);
+      return first + " -> " + last;
+    }
+
+    function rebuildSourceOptions(activeGraph) {
+      sourceFilter.innerHTML = '<option value="all">All sources</option>';
+      const sources = Object.keys(activeGraph.sourceCounts || {}).sort();
+      for (const s of sources) {
+        const op = document.createElement("option");
+        op.value = s;
+        op.textContent = s + " (" + activeGraph.sourceCounts[s] + ")";
+        sourceFilter.appendChild(op);
+      }
+    }
+
+    function regenerateDemoData() {
+      demoNodes = [];
+      demoEdges = [];
+      if (!baseGraph || !Array.isArray(baseGraph.nodes) || baseGraph.nodes.length === 0) {
+        return;
+      }
+      const anchors = baseGraph.nodes.slice(0, Math.min(24, baseGraph.nodes.length));
+      for (let i = 0; i < anchors.length; i += 1) {
+        const a = anchors[i];
+        const id = "demo:image:" + i;
+        const dx = Math.sin(i * 0.71) * (24 + (i % 5) * 3);
+        const dy = 16 + Math.cos(i * 0.43) * 9;
+        const dz = Math.cos(i * 0.61) * (24 + (i % 7) * 2);
+        demoNodes.push({
+          id,
+          source: "demo_images",
+          resourceId: id,
+          label: "Demo Image " + (i + 1),
+          title: "Demo Image Memory " + (i + 1),
+          status: "completed",
+          score: 0.8,
+          createdAt: a.createdAt,
+          indexedAt: a.indexedAt,
+          url: null,
+          isImage: true,
+          imageConfidence: "high",
+          keywords: ["demo", "image", "memory"],
+          x: a.x + dx,
+          y: a.y + dy,
+          z: a.z + dz,
+          size: 2.2,
+        });
+        demoEdges.push({ source: a.id, target: id, strength: 0.9, reason: "demo_attach" });
+      }
+      for (let i = 1; i < demoNodes.length; i += 1) {
+        demoEdges.push({
+          source: demoNodes[i - 1].id,
+          target: demoNodes[i].id,
+          strength: 0.8,
+          reason: "demo_band",
+        });
+      }
+    }
+
+    function getActiveGraph() {
+      if (!baseGraph) {
+        return null;
+      }
+      if (!demoMode) {
+        return baseGraph;
+      }
+      const combinedNodes = baseGraph.nodes.concat(demoNodes);
+      const combinedEdges = baseGraph.edges.concat(demoEdges);
+      const sourceCounts = Object.assign({}, baseGraph.sourceCounts);
+      sourceCounts.demo_images = demoNodes.length;
+      return {
+        ...baseGraph,
+        nodes: combinedNodes,
+        edges: combinedEdges,
+        sourceCounts,
+        metrics: {
+          ...baseGraph.metrics,
+          totalMemories: baseGraph.metrics.totalMemories + demoNodes.length,
+          imageMemories: baseGraph.metrics.imageMemories + demoNodes.length,
+        },
+      };
+    }
+
+    function renderSummary(graph) {
+      const topSources = Object.entries(graph.sourceCounts || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+      const recent = (graph.nodes || [])
+        .slice()
+        .sort((a, b) => Date.parse(b.indexedAt || b.createdAt || "") - Date.parse(a.indexedAt || a.createdAt || ""))
+        .slice(0, 12);
+
+      const statusCounts = countBy(graph.nodes || [], function(n) { return n.status || "unknown"; });
+      const imageConf = countBy(
+        (graph.nodes || []).filter(function(n) { return n.isImage; }),
+        function(n) { return n.imageConfidence || "none"; },
+      );
+
+      const sourcesItems = topSources
+        .map(function(pair) {
+          return '<li><b>' + pair[0] + '</b>: ' + pair[1] + '</li>';
+        })
+        .join("");
+      const sourcesHtml = topSources.length
+        ? '<ul class="list">' + sourcesItems + '</ul>'
+        : '<div class="row">No sources available.</div>';
+
+      const recentItems = recent
+        .map(function(n) {
+          return '<li>' + (n.title || n.label || "untitled").slice(0, 44) + ' <b>[' + n.source + ']</b></li>';
+        })
+        .join("");
+      const recentHtml = recent.length
+        ? '<div class="scroller"><ul class="list">' + recentItems + '</ul></div>'
+        : '<div class="row">No recent memories.</div>';
+
+      const imageHint = graph.metrics?.imageMemories > 0
+        ? ''
+        : '<div class="warn">No image memories were detected in the current Hyperspell window. The graph is still showing all memories. Try widening lookback/max docs or indexing image-heavy sources.</div>';
+
+      const statusLine = Object.keys(statusCounts)
+        .sort()
+        .map(function(k) { return k + ': ' + statusCounts[k]; })
+        .join(' | ');
+      const imgLine = Object.keys(imageConf).length
+        ? Object.keys(imageConf).sort().map(function(k) { return k + ': ' + imageConf[k]; }).join(' | ')
+        : 'none';
+
+      summary.innerHTML = [
+        '<div class="row">sender: <b>' + (graph.senderId || "n/a") + '</b></div>',
+        '<div class="row">total: <b>' + (graph.metrics?.totalMemories ?? 0) + '</b> | images: <b>' + (graph.metrics?.imageMemories ?? 0) + '</b></div>',
+        '<div class="row">span: <b>' + timelineSpan(graph.nodes || []) + '</b></div>',
+        '<div class="row">status mix: <b>' + (statusLine || 'n/a') + '</b></div>',
+        '<div class="row">image confidence: <b>' + imgLine + '</b></div>',
+        '<div class="row"><b>Top sources</b></div>',
+        sourcesHtml,
+        '<div class="row" style="margin-top:8px"><b>Recent memories</b></div>',
+        recentHtml,
+        imageHint,
+      ].join("");
+    }
 
     function buildHud(metrics) {
       hud.innerHTML = "";
@@ -329,6 +536,7 @@ export function renderGalaxyHtml(dataPath: string): string {
     }
 
     function renderGraph() {
+      graph = getActiveGraph();
       if (!graph) return;
       clearSceneGraph();
       const active = [];
@@ -419,6 +627,22 @@ export function renderGalaxyHtml(dataPath: string): string {
       el.addEventListener("change", renderGraph);
     });
 
+    demoBtn.addEventListener("click", () => {
+      demoMode = !demoMode;
+      if (demoMode) {
+        demoBtn.classList.add("active");
+      } else {
+        demoBtn.classList.remove("active");
+      }
+      const activeGraph = getActiveGraph();
+      if (activeGraph) {
+        rebuildSourceOptions(activeGraph);
+        renderSummary(activeGraph);
+        buildHud(activeGraph.metrics);
+      }
+      renderGraph();
+    });
+
     resetBtn.addEventListener("click", () => {
       camera.position.set(0, 26, 170);
       controls.target.set(0, 0, 0);
@@ -429,22 +653,19 @@ export function renderGalaxyHtml(dataPath: string): string {
       if (!res.ok) {
         throw new Error("Failed to load graph data");
       }
-      graph = await res.json();
+      baseGraph = await res.json();
+      regenerateDemoData();
+      graph = getActiveGraph();
+      renderSummary(graph);
       buildHud(graph.metrics);
-
-      const sources = Object.keys(graph.sourceCounts || {}).sort();
-      for (const s of sources) {
-        const op = document.createElement("option");
-        op.value = s;
-        op.textContent = s + " (" + graph.sourceCounts[s] + ")";
-        sourceFilter.appendChild(op);
-      }
+      rebuildSourceOptions(graph);
 
       renderGraph();
     }
 
     load().catch((err) => {
       inspector.innerHTML = '<div class="row"><b>Failed to load dashboard data.</b></div><div class="row">' + String(err.message || err) + '</div>';
+      summary.innerHTML = '<div class="row"><b>Data load failed.</b></div><div class="row">' + String(err.message || err) + '</div>';
     });
 
     function animate() {
