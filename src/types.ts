@@ -23,6 +23,7 @@ export interface GraphNode {
   resourceId: string;
   label: string;
   title: string;
+  type: string | null;
   status: MemoryStatus;
   score: number;
   createdAt: string | null;
@@ -31,6 +32,7 @@ export interface GraphNode {
   isImage: boolean;
   imageConfidence: "high" | "medium" | "low" | "none";
   keywords: string[];
+  metadataPreview: Array<{ key: string; value: string }>;
   x: number;
   y: number;
   z: number;

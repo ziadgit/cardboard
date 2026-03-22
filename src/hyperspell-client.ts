@@ -5,6 +5,11 @@ interface ListResponse {
   next_cursor: string | null;
 }
 
+interface QueryResponse {
+  results?: HyperspellMemory[];
+  items?: HyperspellMemory[];
+}
+
 export interface HyperspellSnapshot {
   memories: HyperspellMemory[];
   statusByProvider: Record<string, Record<string, number>>;
@@ -88,8 +93,36 @@ export async function fetchHyperspellSnapshot(
     cursor = page.next_cursor;
   }
 
+  const enriched = [...all];
+  const seen = new Set(all.map((m) => `${m.source}:${m.resource_id}`));
+  const visualTerms = ["image", "photo", "screenshot", "diagram", "logo", "jpg", "png", "gif"];
+  for (const q of visualTerms) {
+    if (enriched.length >= settings.maxDocs) {
+      break;
+    }
+    try {
+      const queryUrl = new URL(`${base}/memories/query`);
+      queryUrl.searchParams.set("q", q);
+      queryUrl.searchParams.set("size", "20");
+      const qr = await getJson<QueryResponse>(queryUrl.toString(), headers);
+      const candidates = [...(qr.results ?? []), ...(qr.items ?? [])];
+      for (const item of candidates) {
+        const key = `${item.source}:${item.resource_id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          enriched.push(item);
+          if (enriched.length >= settings.maxDocs) {
+            break;
+          }
+        }
+      }
+    } catch {
+      // Query endpoint may be unavailable for some tenants; keep list-only behavior.
+    }
+  }
+
   return {
-    memories: all,
+    memories: enriched,
     statusByProvider: statusRes.providers ?? {},
   };
 }

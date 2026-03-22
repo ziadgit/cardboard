@@ -57,6 +57,34 @@ function tokenize(text: string): string[] {
     .slice(0, 10);
 }
 
+function metadataPreview(mem: HyperspellMemory): Array<{ key: string; value: string }> {
+  const md = asObj(mem.metadata);
+  const keys = [
+    "mime_type",
+    "file_name",
+    "path",
+    "channel_name",
+    "author",
+    "size",
+    "url",
+    "created_at",
+    "indexed_at",
+  ];
+  const out: Array<{ key: string; value: string }> = [];
+  for (const k of keys) {
+    const v = md[k];
+    if (typeof v === "string" && v.trim()) {
+      out.push({ key: k, value: v.trim().slice(0, 120) });
+    } else if (typeof v === "number" || typeof v === "boolean") {
+      out.push({ key: k, value: String(v) });
+    }
+    if (out.length >= 6) {
+      break;
+    }
+  }
+  return out;
+}
+
 function imageConfidence(mem: HyperspellMemory, boost: number): "high" | "medium" | "low" | "none" {
   const { url } = dateParts(mem);
   const title = (mem.title ?? "").toLowerCase();
@@ -190,6 +218,7 @@ export function buildKnowledgeGraph(
       resourceId: mem.resource_id,
       label: title.slice(0, 40),
       title,
+      type: mem.type ?? null,
       status: status as GraphNode["status"],
       score: typeof mem.score === "number" ? mem.score : 0,
       createdAt,
@@ -198,6 +227,7 @@ export function buildKnowledgeGraph(
       isImage,
       imageConfidence: conf,
       keywords,
+      metadataPreview: metadataPreview(mem),
       x: pos.x,
       y: pos.y,
       z: pos.z,
