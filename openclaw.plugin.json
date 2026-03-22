@@ -1,0 +1,42 @@
+{
+  "id": "openclaw-hyperspell-knowledge-3d",
+  "name": "Hyperspell Knowledge 3D",
+  "description": "Cinematic 3D galaxy visualization of memories and images from Hyperspell.",
+  "skills": [
+    "./skills"
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiKey": {
+        "type": "string"
+      },
+      "defaultUserId": {
+        "type": "string"
+      },
+      "apiBase": {
+        "type": "string",
+        "default": "https://api.hyperspell.com"
+      },
+      "lookbackDays": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3650,
+        "default": 180
+      },
+      "maxDocs": {
+        "type": "integer",
+        "minimum": 50,
+        "maximum": 5000,
+        "default": 800
+      },
+      "imageKeywordBoost": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10,
+        "default": 1.5
+      }
+    }
+  }
+}
